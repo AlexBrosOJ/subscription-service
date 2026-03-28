@@ -11,6 +11,8 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 
+	_ "subscription-service/docs"
+
 	"subscription-service/internal/config"
 	"subscription-service/internal/handlers"
 	"subscription-service/internal/repository"
@@ -23,20 +25,17 @@ import (
 // @host localhost:8080
 // @BasePath /
 func main() {
-	// Загружаем конфигурацию
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal("Failed to load config: ", err)
 	}
 
-	// Настраиваем логгер
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{})
 	logger.SetLevel(logrus.InfoLevel)
 
 	logger.Info("Starting subscription service...")
 
-	// Подключаемся к БД
 	db, err := sqlx.Connect("postgres", cfg.DBConnectionString())
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to connect to database")
@@ -45,18 +44,14 @@ func main() {
 
 	logger.Info("Connected to database")
 
-	// Инициализируем репозиторий, сервис и хендлер
 	subscriptionRepo := repository.NewSubscriptionRepository(db, logger)
 	subscriptionService := service.NewSubscriptionService(subscriptionRepo, logger)
 	subscriptionHandler := handlers.NewSubscriptionHandler(subscriptionService, logger)
 
-	// Настраиваем роутер
 	router := gin.Default()
 
-	// Swagger документация
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	// API роуты
 	api := router.Group("/api")
 	{
 		subscriptions := api.Group("/subscriptions")
@@ -70,7 +65,6 @@ func main() {
 		}
 	}
 
-	// Запускаем сервер
 	addr := fmt.Sprintf(":%s", cfg.Port)
 	logger.WithField("port", cfg.Port).Info("Server starting...")
 	if err := router.Run(addr); err != nil {
