@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -10,19 +11,28 @@ import (
 	"subscription-service/internal/repository"
 )
 
+type ISubscriptionService interface {
+	Create(ctx context.Context, req *models.CreateSubscriptionRequest) (*models.Subscription, error)
+	GetByID(ctx context.Context, id string) (*models.Subscription, error)
+	Update(ctx context.Context, id string, req *models.UpdateSubscriptionRequest) (*models.Subscription, error)
+	Delete(ctx context.Context, id string) error
+	List(ctx context.Context, limit, offset int) ([]models.Subscription, error)
+	GetTotalPrice(ctx context.Context, req *models.SummaryRequest) (int, error)
+}
+
 type SubscriptionService struct {
-	repo   *repository.SubscriptionRepository
+	repo   repository.ISubscriptionRepository
 	logger *logrus.Logger
 }
 
-func NewSubscriptionService(repo *repository.SubscriptionRepository, logger *logrus.Logger) *SubscriptionService {
+func NewSubscriptionService(repo repository.ISubscriptionRepository, logger *logrus.Logger) ISubscriptionService {
 	return &SubscriptionService{
 		repo:   repo,
 		logger: logger,
 	}
 }
 
-func (s *SubscriptionService) Create(req *models.CreateSubscriptionRequest) (*models.Subscription, error) {
+func (s *SubscriptionService) Create(ctx context.Context, req *models.CreateSubscriptionRequest) (*models.Subscription, error) {
 	startDate, err := time.Parse("01-2006", req.StartDate)
 	if err != nil {
 		return nil, fmt.Errorf("invalid start_date format, expected MM-YYYY: %w", err)
@@ -49,7 +59,7 @@ func (s *SubscriptionService) Create(req *models.CreateSubscriptionRequest) (*mo
 		EndDate:     endDate,
 	}
 
-	err = s.repo.Create(sub)
+	err = s.repo.Create(ctx, sub)
 	if err != nil {
 		return nil, err
 	}
@@ -57,29 +67,29 @@ func (s *SubscriptionService) Create(req *models.CreateSubscriptionRequest) (*mo
 	return sub, nil
 }
 
-func (s *SubscriptionService) GetByID(id string) (*models.Subscription, error) {
-	return s.repo.GetByID(id)
+func (s *SubscriptionService) GetByID(ctx context.Context, id string) (*models.Subscription, error) {
+	return s.repo.GetByID(ctx, id)
 }
 
-func (s *SubscriptionService) Update(id string, req *models.UpdateSubscriptionRequest) (*models.Subscription, error) {
-	return s.repo.Update(id, req)
+func (s *SubscriptionService) Update(ctx context.Context, id string, req *models.UpdateSubscriptionRequest) (*models.Subscription, error) {
+	return s.repo.Update(ctx, id, req)
 }
 
-func (s *SubscriptionService) Delete(id string) error {
-	return s.repo.Delete(id)
+func (s *SubscriptionService) Delete(ctx context.Context, id string) error {
+	return s.repo.Delete(ctx, id)
 }
 
-func (s *SubscriptionService) List(limit, offset int) ([]models.Subscription, error) {
+func (s *SubscriptionService) List(ctx context.Context, limit, offset int) ([]models.Subscription, error) {
 	if limit <= 0 {
 		limit = 20
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	return s.repo.List(limit, offset)
+	return s.repo.List(ctx, limit, offset)
 }
 
-func (s *SubscriptionService) GetTotalPrice(req *models.SummaryRequest) (int, error) {
+func (s *SubscriptionService) GetTotalPrice(ctx context.Context, req *models.SummaryRequest) (int, error) {
 	startDate, err := time.Parse("01-2006", req.StartDate)
 	if err != nil {
 		return 0, fmt.Errorf("invalid start_date format: %w", err)
@@ -94,5 +104,5 @@ func (s *SubscriptionService) GetTotalPrice(req *models.SummaryRequest) (int, er
 		return 0, fmt.Errorf("end_date cannot be before start_date")
 	}
 
-	return s.repo.GetTotalPrice(req.UserID, req.ServiceName, startDate, endDate)
+	return s.repo.GetTotalPrice(ctx, req.UserID, req.ServiceName, startDate, endDate)
 }

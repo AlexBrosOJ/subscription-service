@@ -12,11 +12,11 @@ import (
 )
 
 type SubscriptionHandler struct {
-	service *service.SubscriptionService
+	service service.ISubscriptionService
 	logger  *logrus.Logger
 }
 
-func NewSubscriptionHandler(service *service.SubscriptionService, logger *logrus.Logger) *SubscriptionHandler {
+func NewSubscriptionHandler(service service.ISubscriptionService, logger *logrus.Logger) *SubscriptionHandler {
 	return &SubscriptionHandler{
 		service: service,
 		logger:  logger,
@@ -42,7 +42,8 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 		return
 	}
 
-	sub, err := h.service.Create(&req)
+	ctx := c.Request.Context()
+	sub, err := h.service.Create(ctx, &req)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to create subscription")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -70,7 +71,8 @@ func (h *SubscriptionHandler) CreateSubscription(c *gin.Context) {
 func (h *SubscriptionHandler) GetSubscription(c *gin.Context) {
 	id := c.Param("id")
 
-	sub, err := h.service.GetByID(id)
+	ctx := c.Request.Context()
+	sub, err := h.service.GetByID(ctx, id)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to get subscription")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -108,7 +110,8 @@ func (h *SubscriptionHandler) UpdateSubscription(c *gin.Context) {
 		return
 	}
 
-	sub, err := h.service.Update(id, &req)
+	ctx := c.Request.Context()
+	sub, err := h.service.Update(ctx, id, &req)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to update subscription")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -137,7 +140,8 @@ func (h *SubscriptionHandler) UpdateSubscription(c *gin.Context) {
 func (h *SubscriptionHandler) DeleteSubscription(c *gin.Context) {
 	id := c.Param("id")
 
-	err := h.service.Delete(id)
+	ctx := c.Request.Context()
+	err := h.service.Delete(ctx, id)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to delete subscription")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -162,7 +166,8 @@ func (h *SubscriptionHandler) ListSubscriptions(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 
-	subscriptions, err := h.service.List(limit, offset)
+	ctx := c.Request.Context()
+	subscriptions, err := h.service.List(ctx, limit, offset)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to list subscriptions")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -193,7 +198,8 @@ func (h *SubscriptionHandler) GetTotalPrice(c *gin.Context) {
 		return
 	}
 
-	totalPrice, err := h.service.GetTotalPrice(&req)
+	ctx := c.Request.Context()
+	totalPrice, err := h.service.GetTotalPrice(ctx, &req)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to calculate total price")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

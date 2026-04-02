@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -11,26 +12,36 @@ import (
 	"subscription-service/internal/models"
 )
 
+type ISubscriptionRepository interface {
+	Create(ctx context.Context, sub *models.Subscription) error
+	GetByID(ctx context.Context, id string) (*models.Subscription, error)
+	Update(ctx context.Context, id string, req *models.UpdateSubscriptionRequest) (*models.Subscription, error)
+	Delete(ctx context.Context, id string) error
+	List(ctx context.Context, limit, offset int) ([]models.Subscription, error)
+	GetTotalPrice(ctx context.Context, userID, serviceName string, startDate, endDate time.Time) (int, error)
+}
+
 type SubscriptionRepository struct {
 	db     *sqlx.DB
 	logger *logrus.Logger
 }
 
-func NewSubscriptionRepository(db *sqlx.DB, logger *logrus.Logger) *SubscriptionRepository {
+func NewSubscriptionRepository(db *sqlx.DB, logger *logrus.Logger) ISubscriptionRepository {
 	return &SubscriptionRepository{
 		db:     db,
 		logger: logger,
 	}
 }
 
-func (r *SubscriptionRepository) Create(sub *models.Subscription) error {
+func (r *SubscriptionRepository) Create(ctx context.Context, sub *models.Subscription) error {
 	query := `
 		INSERT INTO subscriptions (service_name, price, user_id, start_date, end_date)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, created_at, updated_at
 	`
 
-	err := r.db.QueryRowx(
+	err := r.db.QueryRowxContext(
+		ctx,
 		query,
 		sub.ServiceName,
 		sub.Price,
@@ -47,12 +58,12 @@ func (r *SubscriptionRepository) Create(sub *models.Subscription) error {
 	return nil
 }
 
-func (r *SubscriptionRepository) GetByID(id string) (*models.Subscription, error) {
+func (r *SubscriptionRepository) GetByID(ctx context.Context, id string) (*models.Subscription, error) {
 	var sub models.Subscription
 	query := `SELECT id, service_name, price, user_id, start_date, end_date, created_at, updated_at 
 	          FROM subscriptions WHERE id = $1`
 
-	err := r.db.Get(&sub, query, id)
+	err := r.db.GetContext(ctx, &sub, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -64,8 +75,8 @@ func (r *SubscriptionRepository) GetByID(id string) (*models.Subscription, error
 	return &sub, nil
 }
 
-func (r *SubscriptionRepository) Update(id string, req *models.UpdateSubscriptionRequest) (*models.Subscription, error) {
-	sub, err := r.GetByID(id)
+func (r *SubscriptionRepository) Update(ctx context.Context, id string, req *models.UpdateSubscriptionRequest) (*models.Subscription, error) {
+	sub, err := r.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +109,7 @@ func (r *SubscriptionRepository) Update(id string, req *models.UpdateSubscriptio
 		RETURNING updated_at
 	`
 
-	err = r.db.QueryRowx(query, sub.ServiceName, sub.Price, sub.EndDate, id).Scan(&sub.UpdatedAt)
+	err = r.db.QueryRowxContext(ctx, query, sub.ServiceName, sub.Price, sub.EndDate, id).Scan(&sub.UpdatedAt)
 	if err != nil {
 		r.logger.WithError(err).Error("Failed to update subscription")
 		return nil, err
@@ -107,9 +118,9 @@ func (r *SubscriptionRepository) Update(id string, req *models.UpdateSubscriptio
 	return sub, nil
 }
 
-func (r *SubscriptionRepository) Delete(id string) error {
+func (r *SubscriptionRepository) Delete(ctx context.Context, id string) error {
 	query := `DELETE FROM subscriptions WHERE id = $1`
-	result, err := r.db.Exec(query, id)
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		r.logger.WithError(err).Error("Failed to delete subscription")
 		return err
@@ -123,7 +134,7 @@ func (r *SubscriptionRepository) Delete(id string) error {
 	return nil
 }
 
-func (r *SubscriptionRepository) List(limit, offset int) ([]models.Subscription, error) {
+func (r *SubscriptionRepository) List(ctx context.Context, limit, offset int) ([]models.Subscription, error) {
 	var subscriptions []models.Subscription
 	query := `
 		SELECT id, service_name, price, user_id, start_date, end_date, created_at, updated_at
@@ -132,7 +143,7 @@ func (r *SubscriptionRepository) List(limit, offset int) ([]models.Subscription,
 		LIMIT $1 OFFSET $2
 	`
 
-	err := r.db.Select(&subscriptions, query, limit, offset)
+	err := r.db.SelectContext(ctx, &subscriptions, query, limit, offset)
 	if err != nil {
 		r.logger.WithError(err).Error("Failed to list subscriptions")
 		return nil, err
@@ -141,19 +152,31 @@ func (r *SubscriptionRepository) List(limit, offset int) ([]models.Subscription,
 	return subscriptions, nil
 }
 
-func (r *SubscriptionRepository) GetTotalPrice(userID, serviceName string, startDate, endDate time.Time) (int, error) {
+func (r *SubscriptionRepository) GetTotalPrice(ctx context.Context, userID, serviceName string, startDate, endDate time.Time) (int, error) {
 	var totalPrice int
 
 	query := `
-		SELECT COALESCE(SUM(price), 0)
-		FROM subscriptions
-		WHERE ($1 = '' OR user_id = $1::uuid)
-		  AND ($2 = '' OR service_name ILIKE '%' || $2 || '%')
-		  AND start_date <= $4
-		  AND (end_date IS NULL OR end_date >= $3)
+		SELECT COALESCE(SUM(
+			price * (
+				EXTRACT(YEAR FROM age_months) * 12 + EXTRACT(MONTH FROM age_months)
+			)
+		), 0)
+		FROM (
+			SELECT 
+				price,
+				AGE(
+					LEAST(COALESCE(end_date, $4), $4),
+					GREATEST(start_date, $3)
+				) as age_months
+			FROM subscriptions
+			WHERE ($1 = '' OR user_id = $1::uuid)
+			  AND ($2 = '' OR service_name ILIKE '%' || $2 || '%')
+			  AND start_date <= $4
+			  AND (end_date IS NULL OR end_date >= $3)
+		) AS periods
 	`
 
-	err := r.db.Get(&totalPrice, query, userID, serviceName, startDate, endDate)
+	err := r.db.GetContext(ctx, &totalPrice, query, userID, serviceName, startDate, endDate)
 	if err != nil {
 		r.logger.WithError(err).Error("Failed to calculate total price")
 		return 0, err
